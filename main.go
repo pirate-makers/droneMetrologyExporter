@@ -95,7 +95,6 @@ func parseSRT(b []byte) Metrology {
 
 		idMatches := r1.FindStringSubmatch(l)
 		if len(idMatches) == 2 {
-			// fmt.Printf("ID: %s\n", idMatches[1])
 			data.ID, _ = strconv.Atoi(idMatches[1])
 
 			continue
@@ -103,7 +102,6 @@ func parseSRT(b []byte) Metrology {
 
 		timeMatches := r2.FindStringSubmatch(l)
 		if len(timeMatches) == 3 {
-			// fmt.Printf("TIME: start: %s | end: %s\n", timeMatches[1], timeMatches[2])
 
 			data.Start, err = parseSrtTime(timeMatches[1])
 			if err != nil {
@@ -120,8 +118,6 @@ func parseSRT(b []byte) Metrology {
 
 		dataMatches := r3.FindStringSubmatch(l)
 		if len(dataMatches) >= 3 {
-			// fmt.Printf("DATA:\n\tFStop: %s\n\tShutter Speed: %s\n\tDATA: %s\n", dataMatches[1], dataMatches[2], dataMatches[3])
-			// fmt.Println(dataMatches[1:])
 
 			data.FStop, _ = strconv.ParseFloat(dataMatches[1], 64)
 			data.Shutter, _ = strconv.ParseFloat(dataMatches[2], 64)
@@ -153,7 +149,6 @@ func parseSRT(b []byte) Metrology {
 
 			continue
 		}
-		// fmt.Printf("DATA %d: %s\n", c, l)
 	}
 
 	return metrology
@@ -161,15 +156,34 @@ func parseSRT(b []byte) Metrology {
 
 func multiply(a, b int) int { return a * b }
 
+// GPXExporter print the metroloy in a format usable as Resolve Fusion objects
+func GPXExporter(m Metrology) {
+
+	gpxTemplate := `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Drone Metrology Exporter" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  {{ range . -}}
+  <wpt lat="{{.Latitude}}" lon="{{.Longitude}}">
+    <name>{{.ID }}</name>
+		<ele>{{.Altitude}}</ele>
+  </wpt>
+  {{ end -}}
+</gpx>
+`
+
+	t, err := template.New("gpx").Parse(gpxTemplate)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	err = t.Execute(os.Stdout, m)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
 // fusionExporter print the metroloy in a format usable as Resolve Fusion objects
 func fusionExporter(m Metrology) {
-	// 	text = comp:TextPlus()
-	// text.StyledText = "Hello World"
-	// text.Center = comp:Path()
-	// text.Center[0] = {-0.5, 0.5, 0.0}
-	// text.Center[60] = {0.5, 0.5, 0.0}
-	// text.Center[120] = {0, 0.5, 0.0}
-	// text.Center[180] = {0.5, 0.5, 0.0}
 	funcMap := template.FuncMap{"multiply": multiply}
 
 	settingsTemplate := `{
@@ -208,7 +222,7 @@ func fusionExporter(m Metrology) {
 			NameSet = true,
 			KeyFrames = {
 			{{ range . -}}
-				[{{ multiply .ID 30 }}] = { {{ .Bearing }}, LH = { 20, 0.666666666666667 }, RH = { 40, 0.666666666666667 }, Flags = { Linear = true } },
+				[{{ multiply .ID 30 }}] = { {{ printf "%.2f" .Bearing }}, LH = { 20, 0.666666666666667 }, RH = { 40, 0.666666666666667 }, Flags = { Linear = true } },
 				{{ end }}
 			}
 		}
@@ -226,11 +240,6 @@ func fusionExporter(m Metrology) {
 		fmt.Println(err)
 		return
 	}
-	// fmt.Printf("drone = comp:RectangleMask()")
-	// for _, s := range m {
-	// 	fmt.Printf("drone.Width[%d] = %f;\n", s.ID, s.Altitude)
-	// 	fmt.Printf("drone.Height[%d] = %d;\n", s.ID, s.Direction)
-	// }
 }
 
 func jsonExporter(m Metrology) {
@@ -242,7 +251,7 @@ var (
 	// version is filled by -ldflags  at compile time
 	version = "no version set"
 	srtFile = flag.String("srtfile", "sample.srt", "The SRT file containing the metrology")
-	format  = flag.String("format", "json", "output format, json or fusion")
+	format  = flag.String("format", "json", "output format, one of: json, gpx or fusion")
 )
 
 func main() {
@@ -255,10 +264,19 @@ func main() {
 
 	metrologyData := parseSRT(data)
 
-	if *format == "json" {
+	switch *format {
+	case "json":
 		jsonExporter(metrologyData)
-	} else {
+
+	case "gpx":
+		GPXExporter(metrologyData)
+
+	case "fusion":
 		fusionExporter(metrologyData)
+
+	default:
+		jsonExporter(metrologyData)
+
 	}
 }
 
